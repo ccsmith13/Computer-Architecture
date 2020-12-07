@@ -34,26 +34,27 @@ class CPU:
         self.ram[address] = val
 
     def load(self):
-        """Load a program into memory."""
+        try: 
+            if len(sys.argv) < 2:
+                print(f'Error: missing filename argument')
+                sys.exit(1)
 
-        address = 0
+            # add a counter that adds memory at that index 
+            ram_index = 0
+                
+            with open(sys.argv[1]) as f:
+                for line in f:
+                    split_line = line.split("#")[0]
+                    stripped_split_line = split_line.strip()
+                
+                if stripped_split_line != '':
+                    command = int(stripped_split_line, 2)
+                    # load command into memory
+                    self.ram[ram_index] = command
+                    ram_index += 1
 
-        # For now, we've just hardcoded a program:
-
-        program = [
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
-
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
-
+        except FileNotFoundError:
+            print(f'Your file {sys.argv[1]} could not be found in {sys.argv[0]}')
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
@@ -61,6 +62,8 @@ class CPU:
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
         #elif op == "SUB": etc
+        elif op == "MUL":
+            self.reg[reg_a] *= self.reg[reg_b]
         else:
             raise Exception("Unsupported ALU operation")
 
