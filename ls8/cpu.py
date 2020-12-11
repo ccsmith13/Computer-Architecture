@@ -7,7 +7,8 @@ LDI = 0b10000010
 PRN = 0b01000111
 PUSH = 0b01000111
 POP = 0b01000110
-
+CALL = 0b01010000
+RET = 0b00010001
 
 class CPU:
     """Main CPU class."""
@@ -130,6 +131,24 @@ class CPU:
                 reg_address = self.ram[self.pc+1]
                 self.reg[reg_address] = value
                 self.reg[7] += 1
+
+            elif command_to_execute == CALL: 
+                next_command_address = self.pc + 2
+                self.reg[7] -= 1
+                SP = self.reg[7]
+                self.ram[SP] = next_command_address
+                register_number = self.ram[self.pc +1]
+                address_to_jump_to = self.reg[register_number]
+                self.pc = address_to_jump_to                
+
+            elif command_to_execute == RET: 
+                SP = self.reg[7]
+                print(SP)
+                return_address = self.ram[SP]
+                self.reg[7] += 1
+                self.pc = return_address
+
+
                 
 
 
