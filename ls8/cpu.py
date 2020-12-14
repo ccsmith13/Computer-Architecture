@@ -5,10 +5,20 @@ import sys
 HLT = 0b00000001		
 LDI = 0b10000010
 PRN = 0b01000111
-PUSH = 0b01000111
+MUL = 0b10100010
+ADD = 0b10100000
+PUSH = 0b01000101
 POP = 0b01000110
 CALL = 0b01010000
 RET = 0b00010001
+CMP = 0b10100111
+JMP = 0b01010100
+JEQ = 0b01010101
+JNE = 0b01010110
+MOD = 0b10100100
+SHL = 0b10101100
+SHR = 0b10101101
+OR = 0b10101010
 
 class CPU:
     """Main CPU class."""
@@ -17,9 +27,7 @@ class CPU:
         """Construct a new CPU.""" 
         self.ram = [0] * 256
         self.reg = [0] * 8
-        # set the stack pointer 
         self.reg[7] = 0xF4
-
         self.pc = 0
         #IR: Instruction Register
         self.ir = 0
@@ -29,8 +37,25 @@ class CPU:
         self.mdr = 0
         #FL: Flags
         self.fl = 0
-        # Running
-        self.running = True
+        #HLT: Halted status (True / False) 
+        self.halted = False
+
+    # Defining some properties for easier use with functions / reusability 
+    @property
+    def sp(self):
+        return self.reg[7]
+
+    @property
+    def operand_a(self):
+        return self.ram_read(self.pc + 1)
+
+    @property
+    def operand_b(self):
+        return self.ram_read(self.pc + 2)
+    
+    @property
+    def instruction_size(self):
+        return ((self.ir >> 6) & 0b11) + 1
 
     def ram_read(self, address):
         return self.ram[address]
@@ -39,38 +64,69 @@ class CPU:
         self.ram[address] = val
 
     def load(self):
-        try: 
-            if len(sys.argv) < 2:
-                print(f'Error: missing filename argument')
-                sys.exit(1)
-
-            # add a counter that adds memory at that index 
             ram_index = 0
-                
-            with open(sys.argv[1]) as f:
-                for line in f:
-                    split_line = line.split("#")[0]
-                    stripped_split_line = split_line.strip()
-                
-                if stripped_split_line != '':
-                    command = int(stripped_split_line, 2)
-                    # load command into memory
-                    self.ram[ram_index] = command
-                    ram_index += 1
 
-        except FileNotFoundError:
-            print(f'Your file {sys.argv[1]} could not be found in {sys.argv[0]}')
+            if len(sys.argv) < 2:
+                print('Load error: Please add the name of the second file you want to load')
+                exit()
+
+            filename = sys.argv[1]
+            
+            try:
+                with open(filename, 'r')as f:
+                    for line in f:
+                        if line != "\n" and line[0] != "#":
+                            self.ram[ram_index] = int(line[0:8], 2)
+                            ram_index += 1
+            except FileNotFoundError:
+                print(f'Error: file {filename} not found.')
+                exit()
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
 
-        if op == "ADD":
+        if op == ADD:
             self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
-        elif op == "MUL":
+
+        elif op == MUL:
             self.reg[reg_a] *= self.reg[reg_b]
+        
+        elif op == OR:
+            self.reg[reg_a] |= self.reg[reg_b]
+
+        elif op == CMP:
+            if self.reg[reg_a] < self.reg[reg_b]:
+                self.fl |= 0b100
+            else: 
+                self.fl &= 0b011
+            if self.reg[reg_a] > self.reg[reg_b]:
+                self.fl |= 0b010
+            else:
+                self.fl &= 0b101
+            if self.reg[reg_a] == self.reg[reg_b]:
+                self.fl |= 0b001
+            else: 
+                self.fl &= 0b110
+        
+        elif op == MOD: 
+                if self.reg[reg_b] == 0:
+                    print("Error: second register == 0 in MOD command")
+                    self.running = False
+                else: 
+                    self.reg[reg_a] %= self.reg[reg_b]
+        
+        elif op == SHL:
+            # <<= is the bitwise operator to shift bits to the left
+            self.reg[reg_a] <<= self.reg[reg_b]
+        
+        elif op == SHR:
+            # >>= is the bitwise operator to shift bits to the right 
+            self.reg[reg_a] >>= self.reg[reg_b]
+
         else:
             raise Exception("Unsupported ALU operation")
+        
+        self.reg[reg_a] = self.reg[reg_a] & 0xFF
 
     def trace(self):
         """
@@ -94,62 +150,72 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        while self.running:
+        while not self.halted:
+            ir = self.ram_read(self.pc)
+            self.run_command(ir, self.operand_a, self.operand_b)
 
-            command_to_execute = self.ram_read(self.pc)
-
+    def run_command(self, command_to_execute, operand_a, operand_b):
+        alu_function = command_to_execute >> 5 & 0b1
+        sets_pc = command_to_execute >> 4 & 0b1
+        number_of_operands = (command_to_execute >> 6 & 0b11)
+        
+        if not sets_pc: 
             if command_to_execute == LDI:
                 operation_1 = self.ram_read(self.pc + 1)
                 operation_2 = self.ram_read(self.pc + 2)
                 self.reg[operation_1] = operation_2
-                self.pc += 3
 
             elif command_to_execute == PRN:
-                operation_1 = self.ram_read(self.pc + 1)
-                print(self.reg[operation_1])
-                self.pc += 2
+                print(self.reg[self.ram_read(self.pc + 1)])
 
             elif command_to_execute == HLT:
-                self.running = False
-                self.pc += 1
+                self.halted = True
 
             elif command_to_execute == PUSH: 
-                # decrement the SP 
                 self.reg[7] -= 1
-                # starts at F4, decrements to F3 
-                # copy value from given register in address SP is pointing to 
                 reg_address = self.ram[self.pc+1]
                 value = self.reg[reg_address]
-
-                # copy into SP address 
-                SP = self.reg[7]
-                self.ram[SP] = value
+                self.ram[self.reg[7]] = value
             
             elif command_to_execute == POP: 
-                SP = self.reg[7]
-                value = self.ram[SP]
+                value = self.ram[self.reg[7]]
                 reg_address = self.ram[self.pc+1]
                 self.reg[reg_address] = value
-                self.reg[7] += 1
+                if self.reg[7] < 0xF4: 
+                    self.reg[7] += 1
+                else:
+                    print("Error: Stack Underflow")
+                    sys.exit(1)
 
             elif command_to_execute == CALL: 
-                next_command_address = self.pc + 2
                 self.reg[7] -= 1
-                SP = self.reg[7]
-                self.ram[SP] = next_command_address
-                register_number = self.ram[self.pc +1]
-                address_to_jump_to = self.reg[register_number]
-                self.pc = address_to_jump_to                
+                self.ram_write(self.reg[7], self.pc + self.instruction_size)
+                self.pc = self.reg[self.operand_a]               
 
             elif command_to_execute == RET: 
-                SP = self.reg[7]
-                print(SP)
-                return_address = self.ram[SP]
+                self.pc = self.ram_read(self.reg[7])
                 self.reg[7] += 1
-                self.pc = return_address
+            elif alu_function: 
+                self.alu(command_to_execute, operand_a, operand_b)
+            self.pc += number_of_operands + 1
+        else: 
+            if command_to_execute == JMP: 
+                self.pc = self.reg[self.operand_a]
+            elif command_to_execute == JEQ: 
+                if self.fl & 0b1: 
+                    self.pc = self.reg[self.operand_a]
+                else:
+                    self.pc += 2
+            elif command_to_execute == JNE: 
+                if not self.fl & 0b1: 
+                    self.pc = self.reg[self.operand_a]
+                else:
+                    self.pc += 2
+            else: 
+                self.pc += (command_to_execute >> 6)+1 
 
 
-                
+            
 
 
 
